@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<meta name="theme-color" content="#0b0f16" />
+<title>5v5 Match Lobby</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg0: #07090e;
+    --bg1: #0d121b;
+    --panel: rgba(20, 27, 38, .82);
+    --panel-2: rgba(28, 37, 51, .9);
+    --line: rgba(255, 255, 255, .07);
+    --text: #e6eaf0;
+    --muted: #7f8a9c;
+    --dim: #4b5566;
+
+    --ct: #5b8fd8;          /* Team A blue */
+    --ct-hi: #a8c8ff;
+    --ct-deep: #1d3358;
+    --t: #e0a63c;           /* Team B gold */
+    --t-hi: #ffd58a;
+    --t-deep: #4a3413;
+    --go: #4f9c3a;          /* ready green */
+    --go-hi: #6cc24a;
+    --red: #d8463c;
+
+    --cut: 8px;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    color: var(--text);
+    font: 600 16px/1.3 "Rajdhani", "Segoe UI", system-ui, sans-serif;
+    background:
+      radial-gradient(120% 60% at 0% 0%, rgba(91,143,216,.16), transparent 60%),
+      radial-gradient(120% 60% at 100% 100%, rgba(224,166,60,.12), transparent 60%),
+      repeating-linear-gradient(135deg, rgba(255,255,255,.012) 0 2px, transparent 2px 6px),
+      linear-gradient(180deg, var(--bg1), var(--bg0));
+    background-attachment: fixed;
+    letter-spacing: .3px;
+  }
+  .app { max-width: 560px; margin: 0 auto; padding: 14px 12px 96px; }
+  button, input { font: inherit; letter-spacing: inherit; }
+  button { cursor: pointer; border: 0; color: inherit; }
+
+  .cut { clip-path: polygon(var(--cut) 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, 0 100%, 0 var(--cut)); }
+
+  /* ---------- header ---------- */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 14px; margin-bottom: 12px;
+    background: linear-gradient(90deg, rgba(255,255,255,.06), rgba(255,255,255,.02));
+    border-bottom: 2px solid var(--line);
+  }
+  .eyebrow { font-size: 11px; color: var(--muted); letter-spacing: 2.5px; text-transform: uppercase; }
+  h1 { margin: 0; font-size: 24px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; line-height: 1.05; }
+  .counter { text-align: right; }
+  .counter b { display: block; font-size: 26px; font-variant-numeric: tabular-nums; line-height: 1; }
+  .counter b span { color: var(--muted); font-size: 18px; }
+  .counter small { font-size: 11px; color: var(--muted); letter-spacing: 2px; text-transform: uppercase; }
+
+  /* ---------- add ---------- */
+  .add { display: flex; gap: 6px; margin-bottom: 10px; }
+  .add input {
+    flex: 1; min-width: 0; padding: 12px 14px; font-size: 17px; color: var(--text);
+    background: rgba(0,0,0,.45); border: 1px solid var(--line); border-left: 3px solid var(--dim); outline: none;
+  }
+  .add input::placeholder { color: var(--dim); text-transform: uppercase; letter-spacing: 1.5px; font-size: 14px; }
+  .add input:focus { border-left-color: var(--go-hi); background: rgba(0,0,0,.6); }
+  .btn-go {
+    padding: 0 20px; font-weight: 700; text-transform: uppercase; letter-spacing: 2px; color: #fff;
+    background: linear-gradient(180deg, var(--go-hi), var(--go));
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.25);
+  }
+  .btn-go:disabled, .btn-go.is-full { filter: grayscale(1) brightness(.55); }
+  .btn-go:disabled { cursor: default; }
+  .btn-go:not(:disabled):active { filter: brightness(1.15); }
+
+  /* ---------- toolbar ---------- */
+  .tools { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 12px; }
+  .tool {
+    padding: 9px 2px; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px;
+    background: var(--panel-2); color: #c9d2df; border-bottom: 2px solid rgba(255,255,255,.08);
+  }
+  .tool:active { background: #2c3a4f; color: #fff; }
+  .tool.danger { color: #f08a82; }
+
+  /* ---------- panels ---------- */
+  .panel { margin-bottom: 12px; background: var(--panel); backdrop-filter: blur(4px);
+    border: 1px solid var(--line); transition: box-shadow .15s; }
+  .panel.drop { box-shadow: 0 0 0 2px var(--go-hi); }
+  .head { position: relative; display: flex; align-items: center; gap: 10px; padding: 8px 12px 8px 10px;
+    background: linear-gradient(90deg, rgba(255,255,255,.07), transparent 75%); border-bottom: 2px solid var(--dim); }
+  .panel[data-zone="A"] .head { background: linear-gradient(90deg, var(--ct-deep), rgba(29,51,88,.15) 75%); border-bottom-color: var(--ct); }
+  .panel[data-zone="B"] .head { background: linear-gradient(90deg, var(--t-deep), rgba(74,52,19,.15) 75%); border-bottom-color: var(--t); }
+  .panel.map-panel .head { border-bottom-color: var(--go); background: linear-gradient(90deg, rgba(79,156,58,.22), transparent 75%); }
+
+  .side {
+    flex: none; width: 34px; height: 30px; display: grid; place-items: center; font-weight: 700; font-size: 15px; color: #0b0f16;
+    clip-path: polygon(0 0, 100% 0, 100% 70%, 50% 100%, 0 70%);
+    background: linear-gradient(180deg, #9aa4b4, #5d6778);
+  }
+  .panel[data-zone="A"] .side { background: linear-gradient(180deg, var(--ct-hi), var(--ct)); }
+  .panel[data-zone="B"] .side { background: linear-gradient(180deg, var(--t-hi), var(--t)); }
+  .map-panel .side { background: linear-gradient(180deg, #9be07f, var(--go)); }
+
+  .team-name {
+    flex: 1; min-width: 0; background: transparent; border: 0; outline: none; padding: 2px 0;
+    font-size: 20px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: #fff;
+    border-bottom: 1px dashed transparent;
+  }
+  .team-name:focus { border-bottom-color: rgba(255,255,255,.35); }
+  .label { flex: 1; min-width: 0; font-size: 18px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: #c9d2df; }
+  .slots { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--muted); }
+  .panel[data-zone="A"] .slots.full { color: var(--ct-hi); }
+  .panel[data-zone="B"] .slots.full { color: var(--t-hi); }
+  .mini {
+    --cut: 5px; padding: 5px 10px; font-size: 12px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase;
+    background: rgba(255,255,255,.08); color: #c9d2df;
+  }
+  .mini.on { background: var(--go); color: #fff; }
+
+  .list { display: flex; flex-direction: column; }
+  .row { display: flex; align-items: center; gap: 10px; min-height: 46px; padding: 4px 6px 4px 0; border-bottom: 1px solid var(--line); }
+  .row:last-child { border-bottom: 0; }
+  .row:nth-child(even) { background: rgba(255,255,255,.025); }
+  .num { width: 30px; text-align: center; font-size: 14px; color: var(--dim); font-variant-numeric: tabular-nums; }
+  .player { cursor: grab; box-shadow: inset 3px 0 0 var(--dim); }
+  .player.dragging { opacity: .35; }
+  .panel[data-zone="A"] .player { box-shadow: inset 3px 0 0 var(--ct); }
+  .panel[data-zone="B"] .player { box-shadow: inset 3px 0 0 var(--t); }
+  .pname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 18px; font-weight: 600; }
+  .panel[data-zone="A"] .pname { color: var(--ct-hi); }
+  .panel[data-zone="B"] .pname { color: var(--t-hi); }
+  .empty-slot .pname { color: var(--dim) !important; font-size: 13px; letter-spacing: 2.5px; text-transform: uppercase; }
+  .note { padding: 14px; text-align: center; color: var(--dim); font-size: 13px; letter-spacing: 2px; text-transform: uppercase; }
+
+  .acts { display: flex; gap: 4px; }
+  .act { --cut: 5px; width: 38px; height: 32px; font-size: 14px; font-weight: 700; background: rgba(255,255,255,.06); color: #c9d2df; }
+  .act.a { color: var(--ct-hi); background: rgba(91,143,216,.18); }
+  .act.b { color: var(--t-hi); background: rgba(224,166,60,.18); }
+  .act.a:active { background: var(--ct); color: #fff; }
+  .act.b:active { background: var(--t); color: #0b0f16; }
+  .act.x:active { background: var(--red); color: #fff; }
+  .act:disabled { opacity: .25; cursor: default; }
+
+  /* ---------- regulars ---------- */
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px; }
+  .chip {
+    --cut: 6px; display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; font-size: 16px; font-weight: 600;
+    background: rgba(255,255,255,.06); color: #aeb8c7; border-bottom: 2px solid transparent;
+  }
+  .chip .mark { font-size: 13px; color: var(--dim); }
+  .chip.in { background: rgba(79,156,58,.22); color: #fff; border-bottom-color: var(--go-hi); }
+  .chip.in .mark { color: var(--go-hi); }
+  .chip.edit { background: rgba(216,70,60,.14); color: #f3b3ad; }
+  .chip.edit .mark { color: #f08a82; }
+  .chip:active { filter: brightness(1.25); }
+
+  /* ---------- maps ---------- */
+  .map-status { padding: 10px 12px 0; font-size: 14px; letter-spacing: 1.8px; text-transform: uppercase; color: var(--muted); min-height: 28px; }
+  .map-status b { color: #fff; }
+  .map-status .ta { color: var(--ct-hi); } .map-status .tb { color: var(--t-hi); } .map-status .ok { color: var(--go-hi); }
+  .maps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 10px; }
+  .map {
+    --cut: 7px; position: relative; overflow: hidden; height: 78px; padding: 6px 8px; text-align: left;
+    display: flex; flex-direction: column; justify-content: flex-end;
+    background: linear-gradient(135deg, var(--c1), var(--c2));
+    color: #fff; font-size: 15px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase;
+    text-shadow: 0 1px 2px rgba(0,0,0,.6);
+    transition: filter .15s, opacity .15s;
+  }
+  .map .art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+  .map .shade { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,.1) 20%, rgba(0,0,0,.72)); }
+  .map span { position: relative; }
+  .map small { position: absolute; top: 4px; right: 4px; padding: 1px 5px; font-size: 10px; letter-spacing: 1.5px; background: rgba(0,0,0,.55); }
+  .map small:empty { display: none; }
+  .map.picked::after { content: ""; position: absolute; inset: 0; box-shadow: inset 0 0 0 3px var(--go-hi); }
+  .map.picked small { color: var(--go-hi); }
+  .map.banned { filter: grayscale(1) brightness(.4); }
+  .map.banned span { text-decoration: line-through; }
+  .map.banned.ba small { color: var(--ct-hi); }
+  .map.banned.bb small { color: var(--t-hi); }
+  .map:disabled { cursor: default; }
+  .map-actions { display: flex; gap: 6px; padding: 0 10px 10px; }
+  .map-actions .tool { flex: 1; }
+
+  .share { width: 100%; padding: 14px; font-size: 18px; margin-top: 4px; }
+
+  .toast {
+    position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 16px); max-width: 90vw;
+    padding: 10px 18px; background: rgba(8,11,16,.95); color: #fff; font-size: 15px; letter-spacing: 1.5px;
+    text-transform: uppercase; border-left: 3px solid var(--go-hi);
+    opacity: 0; pointer-events: none; transition: .18s;
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+  .toast.err { border-left-color: var(--red); }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="cut">
+    <div>
+      <div class="eyebrow">Competitive · 5v5</div>
+      <h1>Match Lobby</h1>
+    </div>
+    <div class="counter">
+      <b id="count">0<span>/10</span></b>
+      <small>Players</small>
+    </div>
+  </header>
+
+  <form class="add" id="addForm" autocomplete="off">
+    <input id="nameInput" maxlength="24" placeholder="Enter player name" enterkeyhint="done" />
+    <button class="btn-go cut" id="addBtn" type="submit">Add</button>
+  </form>
+
+  <section class="panel cut" id="regulars">
+    <div class="head">
+      <span class="side">★</span>
+      <span class="label">Regulars</span>
+      <button class="mini cut" id="editRoster" type="button">Edit</button>
+    </div>
+    <div class="chips" id="chips"></div>
+  </section>
+
+  <div class="tools">
+    <button class="tool cut" id="shuffleBtn">Random</button>
+    <button class="tool cut" id="swapBtn">Swap</button>
+    <button class="tool cut" id="benchBtn">Reset</button>
+    <button class="tool cut danger" id="clearBtn">Clear</button>
+  </div>
+
+  <section class="panel cut" data-zone="A">
+    <div class="head">
+      <span class="side">A</span>
+      <input class="team-name" id="nameA" maxlength="20" aria-label="Team A name" />
+      <span class="slots" id="slotsA"></span>
+    </div>
+    <div class="list" id="listA"></div>
+  </section>
+
+  <section class="panel cut" data-zone="B">
+    <div class="head">
+      <span class="side">B</span>
+      <input class="team-name" id="nameB" maxlength="20" aria-label="Team B name" />
+      <span class="slots" id="slotsB"></span>
+    </div>
+    <div class="list" id="listB"></div>
+  </section>
+
+  <section class="panel cut" data-zone="P">
+    <div class="head">
+      <span class="side">?</span>
+      <span class="label">Unassigned</span>
+      <span class="slots" id="slotsP"></span>
+    </div>
+    <div class="list" id="listP"></div>
+  </section>
+
+  <section class="panel cut map-panel">
+    <div class="head">
+      <span class="side">M</span>
+      <span class="label">Map</span>
+      <button class="mini cut" id="modePick" type="button">Pick</button>
+      <button class="mini cut" id="modeVeto" type="button">Veto</button>
+    </div>
+    <div class="map-status" id="mapStatus"></div>
+    <div class="maps" id="maps"></div>
+    <div class="map-actions">
+      <button class="tool cut" id="randomMap" type="button">Random map</button>
+      <button class="tool cut" id="resetMap" type="button">Reset map</button>
+    </div>
+  </section>
+
+  <button class="btn-go cut share" id="shareWeb">Share lineup</button>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+(() => {
+  const MAX_PLAYERS = 10, TEAM_SIZE = 5, KEY = "cs2-teams-v1";
+  // Map pool — edit this list to match the maps your group plays.
+  // `art` is a small original illustration (SVG, viewBox 160x80) used as the preview.
+  // To use your own photo instead, put it at maps/<slug>.jpg (e.g. maps/dust2.jpg) next to index.html.
+  const MAPS = [
+    { name: "Ancient", slug: "ancient", c1: "#2f5d3a", c2: "#8a9a4a", art: `
+      <defs><linearGradient id="an-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#c3d6b8"/><stop offset="1" stop-color="#7f9c78"/></linearGradient></defs>
+      <rect width="160" height="80" fill="url(#an-sky)"/>
+      <path d="M100 12l3 2 3-2M110 8l2 1.5 2-1.5M92 16l2 1.4 2-1.4" stroke="#3a4a3a" stroke-width=".8" fill="none"/>
+      <path d="M0 44Q20 30 40 38T80 34T120 36T160 32V80H0Z" fill="#5f8460" opacity=".7"/>
+      <g fill="#4a7049"><circle cx="8" cy="40" r="12"/><circle cx="24" cy="34" r="11"/><circle cx="36" cy="42" r="8"/><circle cx="140" cy="34" r="12"/><circle cx="156" cy="40" r="10"/><circle cx="126" cy="40" r="9"/></g>
+      <g fill="#a29c78"><rect x="40" y="62" width="80" height="18"/><rect x="48" y="52" width="64" height="10"/><rect x="56" y="43" width="48" height="9"/><rect x="63" y="35" width="34" height="8"/><rect x="68" y="22" width="24" height="13"/></g>
+      <g fill="#000" opacity=".16"><rect x="96" y="62" width="24" height="18"/><rect x="96" y="52" width="16" height="10"/><rect x="92" y="43" width="12" height="9"/><rect x="88" y="35" width="9" height="8"/><rect x="86" y="22" width="6" height="13"/></g>
+      <g fill="#cdc7a0"><rect x="40" y="62" width="80" height="1.2"/><rect x="48" y="52" width="64" height="1.2"/><rect x="56" y="43" width="48" height="1.2"/><rect x="63" y="35" width="34" height="1.2"/></g>
+      <rect x="66" y="19" width="28" height="4" fill="#857f5f"/>
+      <rect x="74" y="35" width="12" height="45" fill="#b7b08a"/>
+      <path d="M74 38h12M74 41h12M74 44h12M74 47h12M74 50h12M74 53h12M74 56h12M74 59h12M74 62h12M74 65h12M74 68h12M74 71h12M74 74h12M74 77h12" stroke="#8d8764" stroke-width=".6"/>
+      <rect x="76" y="26" width="8" height="9" fill="#2a281c"/>
+      <g fill="#6f6a4d"><rect x="70" y="25" width="3" height="3"/><rect x="87" y="25" width="3" height="3"/><rect x="70" y="30" width="3" height="2"/><rect x="87" y="30" width="3" height="2"/></g>
+      <g fill="#5d7f47"><ellipse cx="50" cy="62.5" rx="6" ry="1.6"/><ellipse cx="104" cy="52.5" rx="5" ry="1.5"/><ellipse cx="60" cy="43.5" rx="4" ry="1.2"/><ellipse cx="94" cy="35.5" rx="3" ry="1"/><ellipse cx="72" cy="20" rx="4" ry="1.2"/></g>
+      <path d="M30 0Q34 12 28 24Q26 30 30 38M134 0Q130 10 136 22Q138 28 134 34M58 0Q60 8 57 14" stroke="#355a35" stroke-width="1.4" fill="none"/>
+      <g fill="#3f6a3f"><ellipse cx="32" cy="10" rx="2.4" ry="1.2"/><ellipse cx="28" cy="22" rx="2.4" ry="1.2"/><ellipse cx="30" cy="32" rx="2.4" ry="1.2"/><ellipse cx="132" cy="10" rx="2.4" ry="1.2"/><ellipse cx="136" cy="24" rx="2.4" ry="1.2"/></g>
+      <ellipse cx="128" cy="75" rx="24" ry="4" fill="#3d6f6a"/><path d="M114 74h10M130 76h12" stroke="#8cc0b6" stroke-width=".7"/>
+      <path d="M0 80Q10 60 22 56M4 80Q14 64 30 62M10 80Q16 70 34 70M150 80Q144 62 132 58M156 80Q150 66 140 66" stroke="#2f5536" stroke-width="2" fill="none"/>
+      <ellipse cx="36" cy="76" rx="6" ry="3" fill="#7d785a"/>` },
+
+    { name: "Anubis", slug: "anubis", c1: "#1f6f78", c2: "#d2b06a", art: `
+      <defs>
+        <linearGradient id="ab-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f8e2b0"/><stop offset="1" stop-color="#e9bb78"/></linearGradient>
+        <linearGradient id="ab-w" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2a959d"/><stop offset="1" stop-color="#17646c"/></linearGradient>
+      </defs>
+      <rect width="160" height="80" fill="url(#ab-sky)"/>
+      <circle cx="128" cy="14" r="14" fill="#fff6d8" opacity=".35"/><circle cx="128" cy="14" r="8" fill="#fff3cf"/>
+      <polygon points="0,54 14,42 28,54" fill="#e0bb82"/><polygon points="20,54 32,44 44,54" fill="#dcb57a"/>
+      <polygon points="18,58 54,18 90,58" fill="#d4ad68"/><polygon points="54,18 90,58 54,58" fill="#b08a4c"/>
+      <path d="M46.8 26h14.4M39.6 34h28.8M32.4 42h43.2M25.2 50h57.6" stroke="#9d7a42" stroke-width=".5" opacity=".7"/>
+      <path d="M50 26v8M58 34v8M44 42v8M64 42v8M36 50v8M54 50v8M72 50v8" stroke="#9d7a42" stroke-width=".4" opacity=".6"/>
+      <polygon points="54,18 50.4,22 57.6,22" fill="#f4da98"/>
+      <rect x="92" y="56" width="66" height="4" fill="#a9844c"/>
+      <g fill="#caa264"><rect x="98" y="25" width="10" height="31"/><rect x="117" y="25" width="10" height="31"/><rect x="136" y="25" width="10" height="31"/></g>
+      <g fill="#000" opacity=".13"><rect x="105" y="25" width="3" height="31"/><rect x="124" y="25" width="3" height="31"/><rect x="143" y="25" width="3" height="31"/></g>
+      <g fill="#b8904f"><rect x="96" y="25" width="14" height="3"/><rect x="115" y="25" width="14" height="3"/><rect x="134" y="25" width="14" height="3"/></g>
+      <g stroke="#8a6a38" stroke-width=".8"><path d="M101 32h4M101 36h2M101 40h4M101 44h3M101 48h4"/><path d="M120 32h4M120 36h3M120 40h2M120 44h4M120 48h3"/><path d="M139 32h3M139 36h4M139 40h4M139 44h2M139 48h4"/></g>
+      <rect x="92" y="17" width="66" height="8" fill="#b48c50"/><rect x="92" y="20" width="66" height="2.4" fill="#2f7f8a"/>
+      <path d="M92 18.4h66" stroke="#e3c070" stroke-width="1" stroke-dasharray="2 2"/>
+      <rect y="58" width="160" height="22" fill="#c19656"/>
+      <rect x="2" y="50" width="18" height="8" fill="#9c7a44"/>
+      <polygon points="6,50 17,50 16,40 8,40" fill="#262626"/><polygon points="8,40 16,40 15,35 9,35" fill="#262626"/>
+      <polygon points="9,35 10,29 11.5,35" fill="#262626"/><polygon points="12.5,35 14,29 15,35" fill="#262626"/>
+      <polygon points="15,36 19.5,37.5 15,38.6" fill="#262626"/><rect x="8" y="40" width="8" height="1.6" fill="#e0b84a"/>
+      <circle cx="13" cy="37" r=".6" fill="#e0b84a"/>
+      <rect y="63" width="160" height="1.6" fill="#9e7a42"/><rect y="64.6" width="160" height="11" fill="url(#ab-w)"/>
+      <path d="M10 69h18M48 71h24M98 68h20M130 72h16M60 67h8" stroke="#8fd0d4" stroke-width=".8"/>
+      <path d="M24 64v-7M26 64v-9M28 64v-6M150 64v-8M152 64v-6" stroke="#5b7a3a" stroke-width="1"/>` },
+
+    { name: "Dust II", slug: "dust2", c1: "#a77b3f", c2: "#e6c48a", art: `
+      <defs><linearGradient id="d2-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#86c0e8"/><stop offset="1" stop-color="#d4ebf7"/></linearGradient></defs>
+      <rect width="160" height="80" fill="url(#d2-sky)"/>
+      <g fill="#fff" opacity=".85"><ellipse cx="34" cy="8" rx="12" ry="3"/><ellipse cx="44" cy="6" rx="8" ry="3"/><ellipse cx="118" cy="10" rx="14" ry="3"/></g>
+      <path d="M0 13Q40 19 80 14T160 15" stroke="#333" stroke-width=".5" fill="none"/><rect x="150" y="3" width="1.6" height="18" fill="#4a3a2a"/>
+      <rect x="4" y="8" width="20" height="14" fill="#c9a46a"/><path d="M4 8A10 6 0 0 1 24 8Z" fill="#b48c52"/><rect x="11" y="12" width="5" height="7" fill="#4b3420"/>
+      <rect y="20" width="160" height="60" fill="#dcbb7d"/><rect y="20" width="160" height="3" fill="#c29b5e"/><rect y="23" width="160" height="2" fill="#000" opacity=".08"/>
+      <path d="M8 30h10M30 34h12M110 28h10M130 36h12M14 48h8M140 50h10M20 40h10M150 42h8M6 58h10" stroke="#c4a066" stroke-width=".8"/>
+      <path d="M40 24l3 5-2 4 2 3M118 46l-2 4 3 3" stroke="#a9834d" stroke-width=".5" fill="none"/>
+      <path d="M52 80V40a26 26 0 0 1 52 0v40Z" fill="#c9a466"/><path d="M56 80V40a22 22 0 0 1 44 0v40Z" fill="#3a2818"/>
+      <polygon points="75,13 81,13 80,18 76,18" fill="#b48c52"/>
+      <path d="M52 40a26 26 0 0 1 52 0" stroke="#b08a52" stroke-width=".6" stroke-dasharray="3 2" fill="none"/>
+      <rect x="58" y="42" width="19" height="38" fill="#3d6a8c"/><rect x="80" y="44" width="18" height="36" fill="#36607f"/>
+      <path d="M62 42v38M66 42v38M70 42v38M74 42v38M84 44v36M88 44v36M92 44v36M96 44v36" stroke="#2c4f69" stroke-width=".6"/>
+      <g fill="#2c4f69"><rect x="58" y="50" width="19" height="1.6"/><rect x="58" y="70" width="19" height="1.6"/><rect x="80" y="52" width="18" height="1.6"/><rect x="80" y="70" width="18" height="1.6"/></g>
+      <g fill="#d8c69a"><circle cx="60" cy="51" r=".7"/><circle cx="75" cy="51" r=".7"/><circle cx="60" cy="71" r=".7"/><circle cx="75" cy="71" r=".7"/><circle cx="82" cy="53" r=".7"/><circle cx="96" cy="53" r=".7"/></g>
+      <rect x="120" y="30" width="20" height="12" fill="#4b3420"/><path d="M130 30v12M120 36h20" stroke="#6b5030" stroke-width=".8"/>
+      <polygon points="116,27 144,27 146,33 114,33" fill="#b8463a"/>
+      <path d="M120 27l-1 6M126 27v6M132 27v6M138 27l1 6" stroke="#f0e0c0" stroke-width="1.5"/>
+      <rect x="112" y="56" width="22" height="18" fill="#8a6a3a" stroke="#5e4526" stroke-width=".8"/>
+      <path d="M112 56l22 18M134 56l-22 18" stroke="#6b5029" stroke-width="1.4"/>
+      <rect x="128" y="43" width="16" height="13" fill="#9a7742" stroke="#5e4526" stroke-width=".8"/><path d="M128 43l16 13" stroke="#6b5029" stroke-width="1.2"/>
+      <rect x="140" y="60" width="10" height="14" rx="2" fill="#6f4a2a"/><path d="M140 64h10M140 70h10" stroke="#3e2a18" stroke-width="1"/>
+      <rect y="72" width="160" height="8" fill="#c9a36a"/><path d="M0 76Q60 74 160 77M0 78Q70 76 160 79" stroke="#b08a50" stroke-width=".7" fill="none"/>
+      <g fill="#a8844f"><circle cx="20" cy="74" r=".8"/><circle cx="38" cy="77" r=".6"/><circle cx="108" cy="75" r=".7"/></g>` },
+
+    { name: "Inferno", slug: "inferno", c1: "#8a3a22", c2: "#d98b4a", art: `
+      <defs><linearGradient id="in-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f19c5e"/><stop offset="1" stop-color="#f8c890"/></linearGradient></defs>
+      <rect width="160" height="80" fill="url(#in-sky)"/>
+      <path d="M0 44Q30 34 60 40T120 36T160 40V80H0Z" fill="#b9787a" opacity=".45"/>
+      <ellipse cx="100" cy="40" rx="4" ry="15" fill="#2f4a2a"/><rect x="99.4" y="54" width="1.2" height="6" fill="#4a3020"/>
+      <rect x="112" y="10" width="20" height="62" fill="#d0a77e"/><rect x="126" y="10" width="6" height="62" fill="#000" opacity=".12"/>
+      <polygon points="109,10 122,0 135,10" fill="#9a3d22"/><path d="M113 8h18M116 5h12" stroke="#7a2e18" stroke-width=".6"/>
+      <path d="M116 30V20a6 6 0 0 1 12 0v10Z" fill="#2e2018"/><path d="M119 27q3-9 6 0Z" fill="#c9a040"/><circle cx="122" cy="27.5" r=".8" fill="#c9a040"/>
+      <rect x="110" y="30" width="24" height="2" fill="#b8906a"/>
+      <circle cx="122" cy="41" r="4" fill="#f2e6cc" stroke="#6a4a2a" stroke-width=".6"/><path d="M122 41v-2.8M122 41h2" stroke="#333" stroke-width=".6"/>
+      <path d="M116 52h4v6h-4ZM124 52h4v6h-4Z" fill="#2e2018"/>
+      <rect x="4" y="36" width="48" height="44" fill="#ecd0a6"/><polygon points="0,36 28,22 56,36" fill="#b2472a"/>
+      <path d="M7 34h42M13 31h30M19 28h18M24 25.5h8" stroke="#8a3420" stroke-width=".7"/>
+      <g fill="#2e2018"><rect x="12" y="43" width="8" height="10"/><rect x="34" y="43" width="8" height="10"/></g>
+      <g fill="#3e6a3a"><rect x="9" y="43" width="3" height="10"/><rect x="20" y="43" width="3" height="10"/><rect x="31" y="43" width="3" height="10"/><rect x="42" y="43" width="3" height="10"/></g>
+      <path d="M9 45h3M9 47h3M9 49h3M9 51h3M20 45h3M20 47h3M20 49h3M20 51h3M31 45h3M31 47h3M31 49h3M31 51h3M42 45h3M42 47h3M42 49h3M42 51h3" stroke="#2c4e2a" stroke-width=".5"/>
+      <rect x="29" y="56" width="18" height="1.4" fill="#3a2a1e"/><path d="M30 57.4v4M34 57.4v4M38 57.4v4M42 57.4v4M46 57.4v4M29 61.4h18" stroke="#3a2a1e" stroke-width=".6"/>
+      <g fill="#c8302a"><circle cx="32" cy="55" r="1.2"/><circle cx="37" cy="55" r="1.2"/><circle cx="42" cy="55" r="1.2"/></g>
+      <path d="M18 62l3 4-2 3M8 70l2 3" stroke="#c4a27a" stroke-width=".5" fill="none"/>
+      <rect x="52" y="46" width="52" height="34" fill="#dcb58c"/><polygon points="48,46 78,32 108,46" fill="#a63e24"/>
+      <path d="M52 44h52M60 40.5h36M68 37h20" stroke="#7e2e18" stroke-width=".7"/>
+      <g fill="#2e2018"><rect x="58" y="52" width="8" height="9"/><rect x="90" y="52" width="8" height="9"/></g>
+      <g fill="#3e6a3a"><rect x="55" y="52" width="3" height="9"/><rect x="66" y="52" width="3" height="9"/><rect x="87" y="52" width="3" height="9"/><rect x="98" y="52" width="3" height="9"/></g>
+      <path d="M70 80V69a8 8 0 0 1 16 0v11Z" fill="#3a281c"/><path d="M70 69a8 8 0 0 1 16 0" stroke="#b8906a" stroke-width="1.2" fill="none"/>
+      <path d="M52 42Q80 49 112 44" stroke="#4a3a2a" stroke-width=".5" fill="none"/>
+      <rect x="60" y="44" width="4" height="5" fill="#fff"/><rect x="72" y="45.6" width="5" height="6" fill="#4f7fbf"/><rect x="92" y="45.4" width="4" height="5" fill="#c84a3a"/>
+      <rect y="74" width="160" height="6" fill="#8a5a3a"/><path d="M0 76.5h160M0 79h160" stroke="#6e4428" stroke-width=".8" stroke-dasharray="3 2"/>` },
+
+    { name: "Mirage", slug: "mirage", c1: "#9a6a3a", c2: "#e2b77a", art: `
+      <defs><linearGradient id="mi-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f9dca6"/><stop offset="1" stop-color="#efb070"/></linearGradient></defs>
+      <rect width="160" height="80" fill="url(#mi-sky)"/>
+      <circle cx="28" cy="15" r="13" fill="#fff6d8" opacity=".35"/><circle cx="28" cy="15" r="8" fill="#fff2cf"/>
+      <g fill="#dfae78" opacity=".8"><rect x="0" y="40" width="14" height="22"/><rect x="16" y="44" width="10" height="18"/><rect x="138" y="42" width="12" height="20"/><path d="M0 40a7 6 0 0 1 14 0Z"/></g>
+      <rect x="40" y="40" width="76" height="40" fill="#e2c292"/><path d="M40 38.5h76" stroke="#e2c292" stroke-width="3" stroke-dasharray="4 3"/>
+      <rect x="40" y="40" width="76" height="2" fill="#000" opacity=".08"/>
+      <rect x="58" y="33" width="40" height="7" fill="#d8b483"/><path d="M60 36h36" stroke="#b8864a" stroke-width=".6" stroke-dasharray="2 2"/>
+      <path d="M56 33A22 20 0 0 1 100 33Z" fill="#c9985a"/>
+      <path d="M100 33A22 20 0 0 0 86 15Q92 24 92 33Z" fill="#000" opacity=".12"/>
+      <path d="M64 29A16 14 0 0 1 76 15" stroke="#ecc590" stroke-width="2" fill="none"/>
+      <path d="M78 13v20M68 17Q66 25 64 33M88 17Q90 25 92 33" stroke="#b0824a" stroke-width=".7" fill="none"/>
+      <path d="M78 13v-6" stroke="#d4a83a" stroke-width="1.5"/><circle cx="78" cy="6" r="1.6" fill="#d4a83a"/>
+      <rect x="40" y="48" width="76" height="2.4" fill="#2f7f8a"/><path d="M40 49.2h76" stroke="#e3c070" stroke-width=".8" stroke-dasharray="1.5 2.5"/>
+      <g fill="#5a3e22"><path d="M47 70V60q4-8 8 0v10Z"/><path d="M101 70V60q4-8 8 0v10Z"/></g>
+      <path d="M70 80V66q8-12 16 0v14Z" fill="#4a321c"/><path d="M70 66q8-12 16 0" stroke="#c9985a" stroke-width="1.2" fill="none"/>
+      <rect x="58" y="53" width="8" height="12" fill="#a33a3a"/><rect x="59" y="54" width="6" height="10" fill="none" stroke="#e3c070" stroke-width=".6"/>
+      <rect x="90" y="53" width="8" height="12" fill="#2f5f8a"/><rect x="91" y="54" width="6" height="10" fill="none" stroke="#e3c070" stroke-width=".6"/>
+      <rect x="120" y="10" width="12" height="70" fill="#e6ca9a"/><rect x="128" y="10" width="4" height="70" fill="#000" opacity=".1"/>
+      <g fill="#b8864a"><rect x="120" y="22" width="12" height="2.4"/><rect x="117" y="30" width="18" height="2"/><rect x="120" y="46" width="12" height="2.4"/></g>
+      <polygon points="118,10 126,0 134,10" fill="#b8864a"/>
+      <g fill="#5a3e22"><path d="M124 40v-4q2-3 4 0v4Z"/><path d="M124 58v-4q2-3 4 0v4Z"/></g>
+      <path d="M20 80Q24 60 20 46" stroke="#6a4a2c" stroke-width="3" fill="none"/><path d="M19 52h4M20 60h4M21 68h4" stroke="#4e361f" stroke-width=".7"/>
+      <path d="M20 46Q10 42 3 49M20 46Q30 40 38 47M20 46Q14 36 7 35M20 46Q26 36 34 35M20 46Q20 38 22 32" stroke="#4f7a3e" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+      <polygon points="136,60 160,60 160,66 134,66" fill="#c45a32"/><path d="M140 60l-1 6M146 60v6M152 60v6M158 60v6" stroke="#f3e2c0" stroke-width="1.4"/>
+      <g fill="#a8673a"><ellipse cx="140" cy="72" rx="3" ry="3.5"/><ellipse cx="148" cy="73" rx="2.5" ry="3"/></g>
+      <rect y="74" width="160" height="6" fill="#d0a26a"/>` },
+
+    { name: "Nuke", slug: "nuke", c1: "#2d4a63", c2: "#7f9db5", art: `
+      <defs>
+        <linearGradient id="nk-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9eb8cf"/><stop offset="1" stop-color="#c8d6e2"/></linearGradient>
+        <linearGradient id="nk-ct" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#e6eaee"/><stop offset=".6" stop-color="#c9d0d6"/><stop offset="1" stop-color="#98a2ac"/></linearGradient>
+        <pattern id="nk-fence" width="4" height="4" patternUnits="userSpaceOnUse"><path d="M0 0L4 4M4 0L0 4" stroke="#2e3944" stroke-width=".4"/></pattern>
+      </defs>
+      <rect width="160" height="80" fill="url(#nk-sky)"/>
+      <g fill="#fff" opacity=".55"><ellipse cx="36" cy="17" rx="10" ry="6"/><ellipse cx="42" cy="10" rx="12" ry="6"/><ellipse cx="52" cy="4" rx="15" ry="6"/></g>
+      <path d="M14 80Q26 52 21 24H49Q44 52 56 80Z" fill="url(#nk-ct)"/>
+      <ellipse cx="35" cy="24" rx="14" ry="2.5" fill="#8f99a3"/>
+      <path d="M21.6 29H48.4" stroke="#b23a2a" stroke-width="2"/><path d="M22.2 33H47.8" stroke="#fff" stroke-width="2"/><path d="M22.6 37H47.4" stroke="#b23a2a" stroke-width="2"/>
+      <path d="M24 70v10M30 72v8M40 72v8M46 70v10" stroke="#8a949e" stroke-width=".8"/>
+      <rect x="98" y="30" width="26" height="50" fill="#b4bdc6"/><path d="M98 30A13 13 0 0 1 124 30Z" fill="#a0aab4"/>
+      <rect x="118" y="20" width="6" height="60" fill="#000" opacity=".12"/>
+      <path d="M104 30v50M110 30v50M116 30v50" stroke="#9aa4ae" stroke-width=".6"/><path d="M98 44h26M98 60h26" stroke="#9aa4ae" stroke-width=".8"/>
+      <rect x="56" y="46" width="44" height="34" fill="#5a6e82"/><path d="M56 63h44" stroke="#4c5f72" stroke-width="34" stroke-dasharray=".6 2.4"/>
+      <rect x="54" y="44" width="48" height="3" fill="#43566a"/>
+      <rect x="62" y="58" width="16" height="22" fill="#3d4d5c"/><path d="M62 62h16M62 66h16M62 70h16M62 74h16" stroke="#2e3b47" stroke-width=".7"/>
+      <rect x="82" y="53" width="12" height="11" fill="#e2c35a"/><rect x="82" y="53" width="12" height="11" fill="none" stroke="#222" stroke-width=".5"/>
+      <path d="M88 59L86 55.5A4 4 0 0 1 90 55.5ZM88 59L92 59A4 4 0 0 1 90 62.5ZM88 59L86 62.5A4 4 0 0 1 84 59Z" fill="#222"/><circle cx="88" cy="59" r=".9" fill="#222"/>
+      <path d="M100 50H130V40" stroke="#8a939c" stroke-width="2.5" fill="none"/><path d="M100 54H128" stroke="#c0763a" stroke-width="1.6"/>
+      <rect x="128" y="38" width="32" height="42" fill="#4a5b6c"/>
+      <g fill="#e8cc6a" opacity=".75"><rect x="132" y="44" width="4" height="3"/><rect x="140" y="44" width="4" height="3"/><rect x="148" y="44" width="4" height="3"/><rect x="132" y="52" width="4" height="3"/><rect x="148" y="52" width="4" height="3"/></g>
+      <rect y="64" width="160" height="10" fill="url(#nk-fence)"/><path d="M0 64h160" stroke="#2e3944" stroke-width=".8"/>
+      <path d="M8 64v10M40 64v10M72 64v10M104 64v10M136 64v10" stroke="#2e3944" stroke-width="1"/>
+      <rect x="150" y="40" width="1.2" height="34" fill="#2e3944"/><path d="M150.6 40h-5" stroke="#2e3944" stroke-width="1"/><circle cx="145.6" cy="41" r="1.2" fill="#ffeaa0"/>
+      <rect y="74" width="160" height="6" fill="#3b4652"/>` },
+
+    { name: "Train", slug: "train", c1: "#3d4a3a", c2: "#8a8f78", art: `
+      <defs><linearGradient id="tr-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#c6ccc0"/><stop offset="1" stop-color="#9aa392"/></linearGradient></defs>
+      <rect width="160" height="80" fill="url(#tr-sky)"/>
+      <path d="M0 18l8-6v6l8-6v6l8-6v6l8-6v6l8-6v6l8-6v6l8-6v6l8-6v6V48H0Z" fill="#7d846f"/>
+      <path d="M4 26h62M4 34h62" stroke="#5c6352" stroke-width="4" stroke-dasharray="5 3"/>
+      <path d="M90 10V48M150 10V48M86 12H154" stroke="#c9a030" stroke-width="2.4" fill="none"/>
+      <path d="M90 12l6 6M96 12l-6 6M150 12l-6 6M144 12l6 6" stroke="#c9a030" stroke-width=".8"/>
+      <rect x="114" y="13" width="8" height="5" fill="#555"/><path d="M118 18v10" stroke="#333" stroke-width=".5"/>
+      <path d="M0 22H160" stroke="#333" stroke-width=".4"/>
+      <rect x="6" y="38" width="62" height="20" rx="10" fill="#3d4d5a"/><rect x="12" y="40" width="50" height="2" rx="1" fill="#6a7e8e" opacity=".8"/>
+      <rect x="34" y="34" width="6" height="4" fill="#33424e"/><path d="M14 42v14M60 42v14" stroke="#2a3640" stroke-width=".6"/>
+      <path d="M18 50h40" stroke="#f0f0f0" stroke-width="1.2" opacity=".7"/>
+      <rect x="6" y="56" width="62" height="3" fill="#1e1e1e"/>
+      <rect x="76" y="32" width="72" height="26" fill="#7a4c3a"/><path d="M76 45h72" stroke="#643c2d" stroke-width="26" stroke-dasharray=".8 5.2"/>
+      <rect x="76" y="32" width="72" height="2" fill="#8e5c48"/>
+      <rect x="102" y="36" width="18" height="20" fill="#6a4030" stroke="#4a2a1e" stroke-width=".8"/><path d="M111 36v20" stroke="#4a2a1e" stroke-width=".6"/>
+      <path d="M82 52q4-7 8 0t8 0" stroke="#e05a8a" stroke-width="1.6" fill="none"/><path d="M126 50q3-5 6 0t6 0" stroke="#4ac0e0" stroke-width="1.4" fill="none"/>
+      <path d="M144 34v20M146 34v20M144 38h2M144 42h2M144 46h2M144 50h2" stroke="#3a2418" stroke-width=".5"/>
+      <rect x="76" y="56" width="72" height="3" fill="#1e1e1e"/>
+      <g fill="#1c1c1c"><circle cx="16" cy="60" r="3.5"/><circle cx="26" cy="60" r="3.5"/><circle cx="48" cy="60" r="3.5"/><circle cx="58" cy="60" r="3.5"/><circle cx="86" cy="60" r="3.5"/><circle cx="96" cy="60" r="3.5"/><circle cx="128" cy="60" r="3.5"/><circle cx="138" cy="60" r="3.5"/></g>
+      <g fill="#666"><circle cx="16" cy="60" r="1"/><circle cx="26" cy="60" r="1"/><circle cx="48" cy="60" r="1"/><circle cx="58" cy="60" r="1"/><circle cx="86" cy="60" r="1"/><circle cx="96" cy="60" r="1"/><circle cx="128" cy="60" r="1"/><circle cx="138" cy="60" r="1"/></g>
+      <rect y="62" width="160" height="18" fill="#4f5442"/><rect y="64" width="160" height="8" fill="#6b6e60"/>
+      <path d="M0 68h160" stroke="#4a3a2a" stroke-width="5" stroke-dasharray="2 4"/><path d="M0 66h160M0 70h160" stroke="#c0c4b8" stroke-width=".8"/>
+      <rect x="152" y="18" width="2.5" height="44" fill="#2b2b2b"/><rect x="149" y="16" width="8" height="12" rx="1" fill="#1b1b1b"/>
+      <circle cx="153" cy="19.6" r="1.6" fill="#e0402e"/><circle cx="153" cy="24.6" r="1.6" fill="#2a4a2a"/>` },
+
+    { name: "Overpass", slug: "overpass", c1: "#355c4a", c2: "#8fb28a", art: `
+      <defs>
+        <linearGradient id="ov-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9fd0dc"/><stop offset="1" stop-color="#d2ecef"/></linearGradient>
+        <linearGradient id="ov-w" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4a92a2"/><stop offset="1" stop-color="#2a6676"/></linearGradient>
+      </defs>
+      <rect width="160" height="80" fill="url(#ov-sky)"/>
+      <g fill="#fff" opacity=".8"><ellipse cx="24" cy="8" rx="12" ry="3"/><ellipse cx="136" cy="6" rx="14" ry="3"/></g>
+      <g fill="#6aa060"><circle cx="64" cy="42" r="8"/><circle cx="76" cy="40" r="9"/><circle cx="90" cy="43" r="7"/></g>
+      <rect y="24" width="160" height="8" fill="#c4c9cd"/><rect y="32" width="160" height="3" fill="#8e9499"/>
+      <path d="M0 21h160" stroke="#8e9499" stroke-width="1"/><path d="M0 22.6h160" stroke="#9aa0a5" stroke-width="3" stroke-dasharray=".8 2.2"/>
+      <path d="M0 28h160" stroke="#f0f0f0" stroke-width=".5" stroke-dasharray="6 6"/>
+      <rect x="20" y="17.5" width="10" height="4" rx="1" fill="#c8463a"/><rect x="70" y="17.5" width="12" height="4" rx="1" fill="#3a6ac8"/><rect x="118" y="16.5" width="14" height="5" rx="1" fill="#eaeaea"/>
+      <path d="M100 17V8M120 17V8" stroke="#555" stroke-width=".8"/>
+      <rect x="96" y="3" width="28" height="9" fill="#2f7a4a" stroke="#fff" stroke-width=".5"/><path d="M99 6h14M99 9h20" stroke="#fff" stroke-width=".8"/>
+      <rect x="40" y="35" width="10" height="28" fill="#b0b6bb"/><rect x="46" y="35" width="4" height="28" fill="#000" opacity=".12"/>
+      <rect x="108" y="35" width="10" height="28" fill="#b0b6bb"/><rect x="114" y="35" width="4" height="28" fill="#000" opacity=".12"/>
+      <path d="M42 50q2-4 5 0M110 46q3-4 6 0" stroke="#c84ab0" stroke-width="1.2" fill="none"/>
+      <rect x="10" y="48" width="2.4" height="12" fill="#5a3e2a"/><rect x="146" y="46" width="2.4" height="14" fill="#5a3e2a"/>
+      <g fill="#3f7a3e"><circle cx="6" cy="44" r="8"/><circle cx="16" cy="40" r="9"/><circle cx="142" cy="40" r="9"/><circle cx="154" cy="44" r="8"/></g>
+      <g fill="#66a35a"><circle cx="12" cy="38" r="5"/><circle cx="148" cy="38" r="5"/></g>
+      <rect x="84" y="40" width="1.2" height="18" fill="#3a3a3a"/><circle cx="84.6" cy="40" r="1.6" fill="#ffeaa0"/>
+      <rect x="66" y="54" width="14" height="1.6" fill="#6a4a2a"/><rect x="66" y="51" width="14" height="1" fill="#6a4a2a"/><path d="M67 55.6v3M79 55.6v3" stroke="#3a2a1a" stroke-width=".8"/>
+      <rect y="58" width="160" height="6" fill="#5f9a50"/><rect y="63" width="160" height="2" fill="#9aa0a5"/>
+      <rect y="65" width="160" height="15" fill="url(#ov-w)"/>
+      <path d="M20 70h18M70 69h22M118 71h16M44 74h12M96 75h14" stroke="#9cd0da" stroke-width=".8"/>` },
+
+    { name: "Vertigo", slug: "vertigo", c1: "#2a5a8a", c2: "#9cc6e6", art: `
+      <defs>
+        <linearGradient id="vt-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5f9fe0"/><stop offset="1" stop-color="#bfe0f8"/></linearGradient>
+        <pattern id="vt-win" width="4" height="5" patternUnits="userSpaceOnUse"><rect x="1" y="1" width="2" height="2.5" fill="#d8eafa" opacity=".6"/></pattern>
+      </defs>
+      <rect width="160" height="80" fill="url(#vt-sky)"/>
+      <g fill="#fff" opacity=".7"><ellipse cx="30" cy="10" rx="14" ry="3"/><ellipse cx="66" cy="16" rx="10" ry="2.4"/></g>
+      <g fill="#7ea6d0"><rect x="2" y="30" width="16" height="40"/><rect x="20" y="18" width="12" height="52"/><rect x="34" y="34" width="18" height="36"/><rect x="56" y="26" width="14" height="44"/><rect x="90" y="22" width="16" height="48"/><rect x="108" y="38" width="12" height="32"/></g>
+      <g fill="url(#vt-win)"><rect x="2" y="30" width="16" height="40"/><rect x="20" y="18" width="12" height="52"/><rect x="34" y="34" width="18" height="36"/><rect x="56" y="26" width="14" height="44"/><rect x="90" y="22" width="16" height="48"/><rect x="108" y="38" width="12" height="32"/></g>
+      <path d="M26 18v-6M98 22v-8" stroke="#6a8fb8" stroke-width=".8"/>
+      <g fill="#4f78a6"><rect x="12" y="40" width="14" height="30"/><rect x="64" y="40" width="16" height="30"/><rect x="100" y="44" width="14" height="26"/></g>
+      <g fill="url(#vt-win)"><rect x="12" y="40" width="14" height="30"/><rect x="64" y="40" width="16" height="30"/><rect x="100" y="44" width="14" height="26"/></g>
+      <rect x="122" y="8" width="4" height="54" fill="none" stroke="#e0b030" stroke-width=".8"/>
+      <path d="M122 8L126 12L122 16L126 20L122 24L126 28L122 32L126 36L122 40L126 44L122 48L126 52L122 56L126 60" stroke="#e0b030" stroke-width=".6" fill="none"/>
+      <rect x="84" y="5" width="70" height="3" fill="none" stroke="#e0b030" stroke-width=".8"/>
+      <path d="M84 8L88 5L92 8L96 5L100 8L104 5L108 8L112 5L116 8L120 5M130 5L134 8L138 5L142 8L146 5L150 8L154 5" stroke="#e0b030" stroke-width=".5" fill="none"/>
+      <path d="M124 0V5M124 0L90 5M124 0L152 5" stroke="#555" stroke-width=".4"/>
+      <rect x="126" y="9" width="7" height="5" fill="#e0b030"/><rect x="127" y="10" width="3" height="2" fill="#bfe0f8"/>
+      <rect x="142" y="8" width="11" height="5" fill="#555"/>
+      <path d="M96 8V34" stroke="#333" stroke-width=".5"/><path d="M96 34q-1.5 2 0 3" stroke="#333" stroke-width=".7" fill="none"/>
+      <rect x="89" y="37" width="14" height="2.4" fill="#6a6f76"/>
+      <rect y="60" width="160" height="20" fill="#8f949b"/><path d="M0 64h160M0 70h160" stroke="#7d828a" stroke-width=".5"/>
+      <path d="M0 61h160" stroke="#222" stroke-width="3"/><path d="M0 61h160" stroke="#e0b030" stroke-width="3" stroke-dasharray="5 5"/>
+      <path d="M6 59V36M18 59V36M30 59V36M6 36H30M6 44H30M6 52H30M6 59L18 44L30 59M6 44L18 36" stroke="#9aa3ac" stroke-width="1" fill="none"/>
+      <rect x="4" y="44" width="28" height="1.4" fill="#b8865a"/><rect x="4" y="52" width="28" height="1.4" fill="#b8865a"/>
+      <polygon points="58,60 82,60 80,51 61,53" fill="#2f6fb8"/><path d="M62 53l2 7M70 52l1 8M76 51.5l1 8.5" stroke="#245a98" stroke-width=".5"/>
+      <g fill="#b8a27a"><ellipse cx="100" cy="59" rx="4" ry="2"/><ellipse cx="108" cy="59" rx="4" ry="2"/><ellipse cx="104" cy="56.5" rx="4" ry="2"/></g>
+      <rect x="136" y="52" width="10" height="8" fill="#d8d2c4"/><rect x="140" y="48" width="8" height="5" fill="#cbc4b4"/>
+      <path d="M150 60V40M156 60V40M150 44h6M150 48h6M150 52h6M150 56h6" stroke="#6a6f76" stroke-width=".8"/>` },
+  ];
+  const photos = {};   // slug -> URL of a user-supplied photo that loaded OK
+  MAPS.forEach(m => {
+    const img = new Image();
+    img.onload = () => { photos[m.slug] = img.src; renderMaps(); };
+    img.src = `maps/${m.slug}.jpg`;
+  });
+  const tg = window.Telegram && window.Telegram.WebApp;
+  const inTelegram = !!(tg && tg.initData);
+
+  // ---------- state ----------
+  const defaults = { players: [], roster: [], nameA: "Team A", nameB: "Team B", map: null, mapMode: "pick", bans: [] };
+  let state = Object.assign({}, defaults, load() || {});
+  // older saves had no roster: seed it from the current lobby
+  if (!state.roster.length && state.players.length) state.roster = state.players.map(p => p.name);
+  function load() { try { return JSON.parse(localStorage.getItem(KEY)); } catch { return null; } }
+  function save() { localStorage.setItem(KEY, JSON.stringify(state)); }
+  const uid = () => Math.random().toString(36).slice(2, 9);
+  const same = (a, b) => a.toLowerCase() === b.toLowerCase();
+  const inTeam = t => state.players.filter(p => p.team === t);
+  const inLobby = name => state.players.find(p => same(p.name, name));
+  const teamName = t => t === "A" ? state.nameA : state.nameB;
+  let editRoster = false;
+
+  // ---------- helpers ----------
+  const $ = id => document.getElementById(id);
+  const esc = s => s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  function haptic(type = "light") {
+    if (!tg || !tg.HapticFeedback) return;
+    if (["error", "success", "warning"].includes(type)) tg.HapticFeedback.notificationOccurred(type);
+    else tg.HapticFeedback.impactOccurred(type);
+  }
+  let toastTimer;
+  function toast(msg, err) {
+    const t = $("toast"); t.textContent = msg; t.classList.toggle("err", !!err); t.classList.add("show");
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 1800);
+  }
+  function fail(msg) { haptic("error"); toast(msg, true); }
+  function confirmBox(msg, cb) {
+    if (inTelegram && tg.showConfirm) tg.showConfirm(msg, ok => ok && cb());
+    else if (confirm(msg)) cb();
+  }
+
+  // ---------- players ----------
+  function remember(name) { if (!state.roster.some(n => same(n, name))) state.roster.push(name); }
+  function joinLobby(name) {
+    if (inLobby(name)) return fail(`${name} is already in the lobby`), false;
+    if (state.players.length >= MAX_PLAYERS) return fail("Lobby full · remove a player first"), false;
+    state.players.push({ id: uid(), name, team: "P" });
+    return true;
+  }
+  function addPlayer(name) {
+    name = name.trim();
+    if (!name) { $("nameInput").focus(); return fail("Type a player name"); }
+    const known = state.roster.some(n => same(n, name));
+    if (state.players.length >= MAX_PLAYERS && !inLobby(name)) {
+      remember(name); commit();
+      return fail(known ? "Lobby full · remove a player first" : "Saved to regulars · lobby is full");
+    }
+    remember(name);
+    if (joinLobby(name)) haptic();
+    commit();
+  }
+  function toggleRegular(name) {
+    if (editRoster) {
+      state.roster = state.roster.filter(n => !same(n, name));
+      haptic("medium"); return commit();
+    }
+    const p = inLobby(name);
+    if (p) { state.players = state.players.filter(x => x !== p); haptic(); }
+    else if (joinLobby(name)) haptic();
+    commit();
+  }
+  function move(id, team) {
+    const p = state.players.find(p => p.id === id);
+    if (!p || p.team === team) return;
+    if (team !== "P" && inTeam(team).length >= TEAM_SIZE) return fail(`${teamName(team)} is full`);
+    p.team = team; haptic(); commit();
+  }
+  function remove(id) { state.players = state.players.filter(p => p.id !== id); haptic("medium"); commit(); }
+  function shuffle() {
+    if (state.players.length < 2) return fail("Add players first");
+    const arr = [...state.players];
+    for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; }
+    const half = Math.ceil(arr.length / 2);
+    arr.forEach((p, i) => p.team = i < Math.min(half, TEAM_SIZE) ? "A" : (i < half + TEAM_SIZE ? "B" : "P"));
+    state.players = arr; haptic("success"); commit(); toast("Teams randomized");
+  }
+  function swap() { state.players.forEach(p => { if (p.team !== "P") p.team = p.team === "A" ? "B" : "A"; }); haptic(); commit(); toast("Sides swapped"); }
+  function bench() { state.players.forEach(p => p.team = "P"); haptic(); commit(); }
+  function clearAll() { confirmBox("Remove all players from the lobby? Your regulars stay saved.", () => { state.players = []; haptic("warning"); commit(); }); }
+
+  // ---------- maps ----------
+  const remaining = () => MAPS.filter(m => !state.bans.some(b => b.map === m.name));
+  const nextBanTeam = () => state.bans.length % 2 === 0 ? "A" : "B";
+  function setMode(mode) {
+    if (state.mapMode === mode) return;
+    state.mapMode = mode; state.map = null; state.bans = []; haptic(); commit();
+  }
+  function tapMap(name) {
+    if (state.mapMode === "pick") {
+      state.map = state.map === name ? null : name; haptic(); return commit();
+    }
+    // veto
+    if (state.map) return fail("Veto finished · tap Reset map");
+    if (state.bans.some(b => b.map === name)) {
+      const last = state.bans[state.bans.length - 1];
+      if (last.map !== name) return fail("Only the last ban can be undone");
+      state.bans.pop(); haptic(); return commit();
+    }
+    state.bans.push({ map: name, team: nextBanTeam() });
+    const left = remaining();
+    if (left.length === 1) { state.map = left[0].name; haptic("success"); toast(`${state.map} is the decider`); }
+    else haptic();
+    commit();
+  }
+  function randomMap() {
+    if (state.mapMode === "veto") state.mapMode = "pick", state.bans = [];
+    let pool = MAPS.filter(m => m.name !== state.map);
+    state.map = pool[Math.floor(Math.random() * pool.length)].name;
+    haptic("success"); commit(); toast(`Map: ${state.map}`);
+  }
+  function resetMap() { state.map = null; state.bans = []; haptic(); commit(); }
+
+  // ---------- share ----------
+  function lineupText() {
+    const fmt = t => inTeam(t).map((p, i) => `${i + 1}. ${p.name}`).join("\n") || "—";
+    let text = `🎮 5v5 Lineup\n\n🔵 ${state.nameA}\n${fmt("A")}\n\n🟠 ${state.nameB}\n${fmt("B")}`;
+    if (state.map) text += `\n\n🗺 Map: ${state.map}`;
+    if (state.bans.length) text += `\n🚫 Bans: ${state.bans.map(b => `${b.map} (${teamName(b.team)})`).join(", ")}`;
+    return text;
+  }
+  function share() {
+    const text = lineupText();
+    if (inTelegram) {
+      tg.openTelegramLink("https://t.me/share/url?url=" + encodeURIComponent(" ") + "&text=" + encodeURIComponent(text));
+    } else if (navigator.share) {
+      navigator.share({ text }).catch(() => {});
+    } else {
+      navigator.clipboard.writeText(text).then(() => toast("Lineup copied"), () => fail("Copy failed"));
+    }
+  }
+
+  // ---------- render ----------
+  function playerRow(p, idx) {
+    const el = document.createElement("div");
+    el.className = "row player"; el.dataset.id = p.id; el.draggable = true;
+    const num = document.createElement("span"); num.className = "num"; num.textContent = idx + 1;
+    const name = document.createElement("span"); name.className = "pname"; name.textContent = p.name;
+    const acts = document.createElement("div"); acts.className = "acts";
+    const mk = (label, cls, fn, disabled, title) => {
+      const b = document.createElement("button"); b.className = "act cut " + cls; b.textContent = label;
+      b.title = title; b.setAttribute("aria-label", title); b.disabled = disabled; b.onclick = fn; acts.append(b);
+    };
+    if (p.team !== "A") mk("A", "a", () => move(p.id, "A"), inTeam("A").length >= TEAM_SIZE, `Move ${p.name} to ${state.nameA}`);
+    if (p.team !== "B") mk("B", "b", () => move(p.id, "B"), inTeam("B").length >= TEAM_SIZE, `Move ${p.name} to ${state.nameB}`);
+    if (p.team !== "P") mk("↓", "x", () => move(p.id, "P"), false, `Unassign ${p.name}`);
+    else mk("✕", "x", () => remove(p.id), false, `Remove ${p.name} from lobby`);
+    el.append(num, name, acts);
+    el.addEventListener("dragstart", e => { e.dataTransfer.setData("text/plain", p.id); el.classList.add("dragging"); });
+    el.addEventListener("dragend", () => el.classList.remove("dragging"));
+    return el;
+  }
+  function emptyRow(idx) {
+    const el = document.createElement("div"); el.className = "row empty-slot";
+    el.innerHTML = `<span class="num">${idx + 1}</span><span class="pname">Empty slot</span>`;
+    return el;
+  }
+  function renderRegulars() {
+    const box = $("chips"); box.innerHTML = "";
+    $("editRoster").textContent = editRoster ? "Done" : "Edit";
+    $("editRoster").classList.toggle("on", editRoster);
+    $("editRoster").style.visibility = state.roster.length ? "visible" : "hidden";
+    if (!state.roster.length) { box.innerHTML = `<div class="note" style="width:100%">Players you add are saved here</div>`; return; }
+    [...state.roster].sort((a, b) => a.localeCompare(b)).forEach(name => {
+      const on = !!inLobby(name);
+      const c = document.createElement("button");
+      c.type = "button"; c.className = "chip cut" + (editRoster ? " edit" : on ? " in" : "");
+      c.innerHTML = `<span class="mark">${editRoster ? "✕" : on ? "✓" : "+"}</span>${esc(name)}`;
+      c.setAttribute("aria-label", editRoster ? `Delete ${name} from regulars` : on ? `Remove ${name} from lobby` : `Add ${name} to lobby`);
+      c.onclick = () => toggleRegular(name);
+      box.append(c);
+    });
+  }
+  function renderMaps() {
+    const veto = state.mapMode === "veto";
+    $("modePick").classList.toggle("on", !veto);
+    $("modeVeto").classList.toggle("on", veto);
+    $("randomMap").style.display = veto ? "none" : "";
+    const st = $("mapStatus");
+    if (state.map) st.innerHTML = `${veto ? "Decider" : "Picked"}: <b class="ok">${esc(state.map)}</b>`;
+    else if (veto) {
+      const t = nextBanTeam();
+      st.innerHTML = `<b class="${t === "A" ? "ta" : "tb"}">${esc(teamName(t))}</b> bans · ${remaining().length} maps left`;
+    } else st.textContent = "Tap a map to pick it";
+
+    const box = $("maps"); box.innerHTML = "";
+    MAPS.forEach(m => {
+      const ban = state.bans.find(b => b.map === m.name);
+      const picked = state.map === m.name;
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "map cut" + (picked ? " picked" : "") + (ban ? " banned b" + ban.team.toLowerCase() : "");
+      b.style.setProperty("--c1", m.c1); b.style.setProperty("--c2", m.c2);
+      const tag = picked ? (veto ? "Decider" : "Picked") : ban ? `${ban.team} ban` : "";
+      const pic = photos[m.slug]
+        ? `<img class="art" src="${photos[m.slug]}" alt="">`
+        : `<svg class="art" viewBox="0 0 160 80" preserveAspectRatio="xMidYMid slice" aria-hidden="true">${m.art}</svg>`;
+      b.innerHTML = `${pic}<i class="shade"></i><small>${tag}</small><span>${esc(m.name)}</span>`;
+      b.setAttribute("aria-label", `${m.name}${tag ? " — " + tag : ""}`);
+      b.onclick = () => tapMap(m.name);
+      box.append(b);
+    });
+  }
+  function render() {
+    for (const t of ["A", "B", "P"]) {
+      const list = $("list" + t); list.innerHTML = "";
+      const ps = inTeam(t);
+      ps.forEach((p, i) => list.append(playerRow(p, i)));
+      if (t === "P") {
+        if (!ps.length) list.innerHTML = `<div class="note">${state.players.length ? "All players assigned" : "Add players to start"}</div>`;
+        $("slotsP").textContent = ps.length || "";
+      } else {
+        for (let i = ps.length; i < TEAM_SIZE; i++) list.append(emptyRow(i));
+        const s = $("slots" + t); s.textContent = `${ps.length}/${TEAM_SIZE}`; s.classList.toggle("full", ps.length === TEAM_SIZE);
+      }
+    }
+    const n = state.players.length;
+    $("count").innerHTML = `${n}<span>/${MAX_PLAYERS}</span>`;
+    $("addBtn").classList.toggle("is-full", n >= MAX_PLAYERS);
+    $("nameInput").placeholder = n >= MAX_PLAYERS ? "Lobby full" : `Player ${n + 1} name`;
+    if (document.activeElement !== $("nameA")) $("nameA").value = state.nameA;
+    if (document.activeElement !== $("nameB")) $("nameB").value = state.nameB;
+    renderRegulars();
+    renderMaps();
+
+    const a = inTeam("A").length, b = inTeam("B").length, ready = a === TEAM_SIZE && b === TEAM_SIZE;
+    const label = ready ? "Share lineup · Ready" : `Share lineup · ${a}v${b}`;
+    if (inTelegram) {
+      $("shareWeb").style.display = "none";
+      tg.MainButton.setParams({ text: label.toUpperCase(), color: ready ? "#4f9c3a" : "#2c3a4f", text_color: "#ffffff" });
+      a + b ? tg.MainButton.show() : tg.MainButton.hide();
+    } else {
+      $("shareWeb").disabled = !(a + b);
+      $("shareWeb").textContent = label;
+    }
+  }
+  function commit() { save(); render(); }
+
+  // ---------- events ----------
+  $("addForm").addEventListener("submit", e => { e.preventDefault(); addPlayer($("nameInput").value); $("nameInput").value = ""; $("nameInput").focus(); });
+  $("editRoster").onclick = () => { editRoster = !editRoster; haptic(); render(); };
+  $("shuffleBtn").onclick = shuffle;
+  $("swapBtn").onclick = swap;
+  $("benchBtn").onclick = bench;
+  $("clearBtn").onclick = clearAll;
+  $("modePick").onclick = () => setMode("pick");
+  $("modeVeto").onclick = () => setMode("veto");
+  $("randomMap").onclick = randomMap;
+  $("resetMap").onclick = resetMap;
+  $("shareWeb").onclick = share;
+  for (const t of ["A", "B"]) {
+    const inp = $("name" + t);
+    inp.addEventListener("input", () => { state["name" + t] = inp.value.trim() || `Team ${t}`; save(); });
+    inp.addEventListener("blur", render);
+  }
+  document.querySelectorAll(".panel[data-zone]").forEach(sec => {
+    sec.addEventListener("dragover", e => { e.preventDefault(); sec.classList.add("drop"); });
+    sec.addEventListener("dragleave", () => sec.classList.remove("drop"));
+    sec.addEventListener("drop", e => { e.preventDefault(); sec.classList.remove("drop"); move(e.dataTransfer.getData("text/plain"), sec.dataset.zone); });
+  });
+
+  // ---------- telegram ----------
+  if (tg) {
+    tg.ready(); tg.expand();
+    if (inTelegram) {
+      tg.MainButton.onClick(share);
+      try { tg.setHeaderColor("#0b0f16"); tg.setBackgroundColor("#07090e"); } catch {}
+    }
+  }
+  render();
+})();
+</script>
+</body>
+</html>

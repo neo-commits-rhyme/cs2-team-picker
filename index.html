@@ -188,6 +188,18 @@
   .map.banned.ba small { color: var(--ct-hi); }
   .map.banned.bb small { color: var(--t-hi); }
   .map:disabled { cursor: default; }
+  .series { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 8px 10px 0; }
+  .series:empty { display: none; }
+  .slot { --cut: 6px; padding: 6px 8px; background: rgba(0,0,0,.35); border-left: 3px solid var(--dim); min-width: 0; }
+  .slot small { display: block; font-size: 10px; letter-spacing: 1.1px; text-transform: uppercase; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .slot b { display: block; font-size: 15px; letter-spacing: 1px; text-transform: uppercase; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .slot.sa { border-left-color: var(--ct); } .slot.sa b { color: var(--ct-hi); }
+  .slot.sb { border-left-color: var(--t); } .slot.sb b { color: var(--t-hi); }
+  .slot.sd { border-left-color: var(--go-hi); } .slot.sd b { color: #fff; }
+  .slot.now { box-shadow: inset 0 0 0 1px rgba(255,255,255,.25); }
+  .map.picked.pa small { color: var(--ct-hi); } .map.picked.pb small { color: var(--t-hi); }
+  .map.picked.pa::after { box-shadow: inset 0 0 0 3px var(--ct); }
+  .map.picked.pb::after { box-shadow: inset 0 0 0 3px var(--t); }
   .map-actions { display: flex; gap: 6px; padding: 0 10px 10px; }
   .map-actions .tool { flex: 1; }
 
@@ -270,9 +282,11 @@
       <span class="side">M</span>
       <span class="label">Map</span>
       <button class="mini cut" id="modePick" type="button">Pick</button>
-      <button class="mini cut" id="modeVeto" type="button">Veto</button>
+      <button class="mini cut" id="modeBo1" type="button">Bo1</button>
+      <button class="mini cut" id="modeBo3" type="button">Bo3</button>
     </div>
     <div class="map-status" id="mapStatus"></div>
+    <div class="series" id="series"></div>
     <div class="maps" id="maps"></div>
     <div class="map-actions">
       <button class="tool cut" id="randomMap" type="button">Random map</button>
@@ -543,10 +557,13 @@
   const inTelegram = !!(tg && tg.initData);
 
   // ---------- state ----------
-  const defaults = { players: [], roster: [], nameA: "Team A", nameB: "Team B", map: null, mapMode: "pick", bans: [] };
+  const defaults = { players: [], roster: [], nameA: "Team A", nameB: "Team B", map: null, mapMode: "pick", steps: [] };
   let state = Object.assign({}, defaults, load() || {});
   // older saves had no roster: seed it from the current lobby
   if (!state.roster.length && state.players.length) state.roster = state.players.map(p => p.name);
+  // older saves stored Bo1 bans as `bans`
+  if (state.bans) { state.steps = state.bans.map(b => ({ map: b.map, team: b.team, kind: "ban" })); delete state.bans; }
+  if (!Array.isArray(state.steps)) state.steps = [];
   function load() { try { return JSON.parse(localStorage.getItem(KEY)); } catch { return null; } }
   function save() { localStorage.setItem(KEY, JSON.stringify(state)); }
   const uid = () => Math.random().toString(36).slice(2, 9);
@@ -625,43 +642,61 @@
   function clearAll() { confirmBox("Remove all players from the lobby? Your regulars stay saved.", () => { state.players = []; haptic("warning"); commit(); }); }
 
   // ---------- maps ----------
-  const remaining = () => MAPS.filter(m => !state.bans.some(b => b.map === m.name));
-  const nextBanTeam = () => state.bans.length % 2 === 0 ? "A" : "B";
+  // Pick: tap any map. Bo1: teams ban in turn (A first) until one map is left.
+  // Bo3: A ban, B ban, A pick (map 1), B pick (map 2), then alternate bans; the last map is map 3 (decider).
+  const isVeto = () => state.mapMode === "veto" || state.mapMode === "bo3";
+  const remaining = () => MAPS.filter(m => !state.steps.some(st => st.map === m.name));
+  const decider = () => isVeto() && remaining().length === 1 ? remaining()[0].name : null;
+  function nextStep() {
+    const i = state.steps.length;
+    return { team: i % 2 === 0 ? "A" : "B", kind: state.mapMode === "bo3" && (i === 2 || i === 3) ? "pick" : "ban" };
+  }
+  function seriesMaps() {   // ordered list of maps to be played
+    if (state.mapMode === "pick") return state.map ? [{ map: state.map, how: "picked" }] : [];
+    const picks = state.steps.filter(st => st.kind === "pick").map(st => ({ map: st.map, how: `${teamName(st.team)} pick`, team: st.team }));
+    const d = decider();
+    return d ? [...picks, { map: d, how: "decider" }] : picks;
+  }
   function setMode(mode) {
     if (state.mapMode === mode) return;
-    state.mapMode = mode; state.map = null; state.bans = []; haptic(); commit();
+    state.mapMode = mode; state.map = null; state.steps = []; haptic(); commit();
   }
   function tapMap(name) {
     if (state.mapMode === "pick") {
       state.map = state.map === name ? null : name; haptic(); return commit();
     }
-    // veto
-    if (state.map) return fail("Veto finished · tap Reset map");
-    if (state.bans.some(b => b.map === name)) {
-      const last = state.bans[state.bans.length - 1];
-      if (last.map !== name) return fail("Only the last ban can be undone");
-      state.bans.pop(); haptic(); return commit();
-    }
-    state.bans.push({ map: name, team: nextBanTeam() });
-    const left = remaining();
-    if (left.length === 1) { state.map = left[0].name; haptic("success"); toast(`${state.map} is the decider`); }
+    const last = state.steps[state.steps.length - 1];
+    if (last && last.map === name) { state.steps.pop(); haptic(); return commit(); }   // undo
+    if (decider()) return fail("Veto finished · tap Reset map");
+    if (state.steps.some(st => st.map === name)) return fail("Only the last step can be undone");
+    const step = nextStep();
+    state.steps.push({ map: name, ...step });
+    const d = decider();
+    if (d) { haptic("success"); toast(state.mapMode === "bo3" ? `Series set · ${d} is map 3` : `${d} is the decider`); }
+    else if (step.kind === "pick") { haptic("medium"); toast(`${teamName(step.team)} picks ${name}`); }
     else haptic();
     commit();
   }
   function randomMap() {
-    if (state.mapMode === "veto") state.mapMode = "pick", state.bans = [];
+    if (state.mapMode !== "pick") state.mapMode = "pick", state.steps = [];
     let pool = MAPS.filter(m => m.name !== state.map);
     state.map = pool[Math.floor(Math.random() * pool.length)].name;
     haptic("success"); commit(); toast(`Map: ${state.map}`);
   }
-  function resetMap() { state.map = null; state.bans = []; haptic(); commit(); }
+  function resetMap() { state.map = null; state.steps = []; haptic(); commit(); }
 
   // ---------- share ----------
   function lineupText() {
     const fmt = t => inTeam(t).map((p, i) => `${i + 1}. ${p.name}`).join("\n") || "—";
     let text = `🎮 5v5 Lineup\n\n🔵 ${state.nameA}\n${fmt("A")}\n\n🟠 ${state.nameB}\n${fmt("B")}`;
-    if (state.map) text += `\n\n🗺 Map: ${state.map}`;
-    if (state.bans.length) text += `\n🚫 Bans: ${state.bans.map(b => `${b.map} (${teamName(b.team)})`).join(", ")}`;
+    const series = seriesMaps();
+    if (state.mapMode === "bo3" && series.length) {
+      text += `\n\n🗺 Maps (Bo3)\n` + series.map((m, i) => `${i + 1}. ${m.map} — ${m.how}`).join("\n");
+    } else if (series.length) {
+      text += `\n\n🗺 Map: ${series[0].map}${state.mapMode === "veto" ? " (decider)" : ""}`;
+    }
+    const bans = state.steps.filter(st => st.kind === "ban");
+    if (bans.length) text += `\n🚫 Bans: ${bans.map(b => `${b.map} (${teamName(b.team)})`).join(", ")}`;
     return text;
   }
   function share() {
@@ -717,26 +752,58 @@
     });
   }
   function renderMaps() {
-    const veto = state.mapMode === "veto";
-    $("modePick").classList.toggle("on", !veto);
-    $("modeVeto").classList.toggle("on", veto);
+    const mode = state.mapMode, veto = isVeto(), bo3 = mode === "bo3";
+    $("modePick").classList.toggle("on", mode === "pick");
+    $("modeBo1").classList.toggle("on", mode === "veto");
+    $("modeBo3").classList.toggle("on", bo3);
     $("randomMap").style.display = veto ? "none" : "";
-    const st = $("mapStatus");
-    if (state.map) st.innerHTML = `${veto ? "Decider" : "Picked"}: <b class="ok">${esc(state.map)}</b>`;
-    else if (veto) {
-      const t = nextBanTeam();
-      st.innerHTML = `<b class="${t === "A" ? "ta" : "tb"}">${esc(teamName(t))}</b> bans · ${remaining().length} maps left`;
-    } else st.textContent = "Tap a map to pick it";
+    const st = $("mapStatus"), d = decider();
+    if (!veto) st.innerHTML = state.map ? `Picked: <b class="ok">${esc(state.map)}</b>` : "Tap a map to pick it";
+    else if (d) st.innerHTML = bo3 ? `<b class="ok">Series ready</b> · tap last step to undo` : `Decider: <b class="ok">${esc(d)}</b>`;
+    else {
+      const n = nextStep();
+      st.innerHTML = `<b class="${n.team === "A" ? "ta" : "tb"}">${esc(teamName(n.team))}</b> ${n.kind === "pick" ? "picks a map" : "bans"} · ${remaining().length} left`;
+    }
+
+    // Bo3 series strip
+    const ser = $("series"); ser.innerHTML = "";
+    if (bo3) {
+      const picks = state.steps.filter(x => x.kind === "pick");
+      const nextIdx = d ? -1 : nextStep().kind === "pick" ? picks.length : -1;
+      [0, 1, 2].forEach(i => {
+        const el = document.createElement("div");
+        let cls = "slot cut", label, val = "—";
+        if (i < 2) {
+          const team = i === 0 ? "A" : "B", p = picks[i];
+          label = `Map ${i + 1} · ${team} pick`;
+          if (p) { val = p.map; cls += team === "A" ? " sa" : " sb"; }
+          if (nextIdx === i) cls += " now";
+        } else {
+          label = "Map 3 · decider";
+          if (d) { val = d; cls += " sd"; }
+        }
+        el.className = cls;
+        el.innerHTML = `<small>${esc(label)}</small><b>${esc(val)}</b>`;
+        ser.append(el);
+      });
+    }
 
     const box = $("maps"); box.innerHTML = "";
+    const pickOrder = state.steps.filter(x => x.kind === "pick").map(x => x.map);
     MAPS.forEach(m => {
-      const ban = state.bans.find(b => b.map === m.name);
-      const picked = state.map === m.name;
+      const step = state.steps.find(x => x.map === m.name);
+      const isDecider = d === m.name, isPick = step && step.kind === "pick";
+      const picked = isDecider || isPick || (!veto && state.map === m.name);
+      let tag = "";
+      if (isPick) tag = bo3 ? `${pickOrder.indexOf(m.name) + 1} · ${step.team} pick` : `${step.team} pick`;
+      else if (step) tag = `${step.team} ban`;
+      else if (isDecider) tag = bo3 ? "3 · Decider" : "Decider";
+      else if (picked) tag = "Picked";
       const b = document.createElement("button");
       b.type = "button";
-      b.className = "map cut" + (picked ? " picked" : "") + (ban ? " banned b" + ban.team.toLowerCase() : "");
+      b.className = "map cut" + (picked ? " picked" : "") + (isPick ? " p" + step.team.toLowerCase() : "")
+        + (step && step.kind === "ban" ? " banned b" + step.team.toLowerCase() : "");
       b.style.setProperty("--c1", m.c1); b.style.setProperty("--c2", m.c2);
-      const tag = picked ? (veto ? "Decider" : "Picked") : ban ? `${ban.team} ban` : "";
       const pic = photos[m.slug]
         ? `<img class="art" src="${photos[m.slug]}" alt="">`
         : `<svg class="art" viewBox="0 0 160 80" preserveAspectRatio="xMidYMid slice" aria-hidden="true">${m.art}</svg>`;
@@ -789,7 +856,8 @@
   $("benchBtn").onclick = bench;
   $("clearBtn").onclick = clearAll;
   $("modePick").onclick = () => setMode("pick");
-  $("modeVeto").onclick = () => setMode("veto");
+  $("modeBo1").onclick = () => setMode("veto");
+  $("modeBo3").onclick = () => setMode("bo3");
   $("randomMap").onclick = randomMap;
   $("resetMap").onclick = resetMap;
   $("shareWeb").onclick = share;
